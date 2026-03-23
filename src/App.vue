@@ -112,6 +112,9 @@
 					v-else-if="activeMenu === 'algo-instance-detail'"
 					:route-info="algoInstanceRouteInfo" />
 				<UserManagement v-else-if="activeMenu === 'user-management'" />
+				<AnnotationPage
+					v-else-if="activeMenu === 'annotation'"
+					:route-info="annotationRouteInfo" />
 				<div v-else class="placeholder-view">
 					正在开发中: {{ currentPageLabel }}
 				</div>
@@ -149,6 +152,7 @@ import TrainProgress from './views/TrainProgress.vue';
 import ReleaseProgress from './views/ReleaseProgress.vue';
 import UserManagement from './views/UserManagement.vue';
 import DeliveryProgress from './views/DeliveryProgress.vue';
+import AnnotationPage from './views/AnnotationPage.vue';
 
 const activeMenu = ref('overview');
 const currentHash = ref(window.location.hash || '');
@@ -195,6 +199,20 @@ const parseAlgoInstanceRoute = (hash) => {
 
 	return {
 		algoId: decodeURIComponent(algoId),
+		name: decodeURIComponent(query.get('name') || ''),
+	};
+};
+
+const parseAnnotationRoute = (hash) => {
+	const match = hash.match(/^#\/annotation(?:\?(.*))?$/);
+	if (!match) {
+		return null;
+	}
+
+	const query = new URLSearchParams(match[1] || '');
+
+	return {
+		algoId: decodeURIComponent(query.get('algoId') || ''),
 		name: decodeURIComponent(query.get('name') || ''),
 	};
 };
@@ -249,6 +267,7 @@ const menuMap = {
 	'algo-detail': { label: '算法详情', parent: '项目视图' },
 	'algo-instance-detail': { label: '算法实例详情', parent: '项目视图' },
 	'algo-dev': { label: '算法开发' },
+	'annotation': { label: '数据标注', parent: '算法开发' },
 	'agent-data': { label: '智能体数据' },
 	'agent-train': { label: '智能体训练' },
 	'user-management': { label: '用户', parent: '系统管理' },
@@ -261,10 +280,13 @@ const currentParentLabel = computed(() => menuMap[activeMenu.value]?.parent || '
 const stationRouteInfo = computed(() => parseStationRoute(currentHash.value) || {});
 const algoRouteInfo = computed(() => parseAlgoRoute(currentHash.value) || {});
 const algoInstanceRouteInfo = computed(() => parseAlgoInstanceRoute(currentHash.value) || {});
+const annotationRouteInfo = computed(() => parseAnnotationRoute(currentHash.value) || {});
 
 const syncMenuByHash = () => {
 	currentHash.value = window.location.hash;
-	if (parseAlgoInstanceRoute(window.location.hash)) {
+	if (parseAnnotationRoute(window.location.hash)) {
+		activeMenu.value = 'annotation';
+	} else if (parseAlgoInstanceRoute(window.location.hash)) {
 		activeMenu.value = 'algo-instance-detail';
 	} else if (parseAlgoRoute(window.location.hash)) {
 		activeMenu.value = 'algo-detail';

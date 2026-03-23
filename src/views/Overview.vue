@@ -393,8 +393,8 @@ const projectBars = [
 ];
 
 onMounted(() => {
-  initMapChart();
   nextTick(() => {
+    initMapChart();
     initStationCharts();
   });
   window.addEventListener('resize', handleResize);

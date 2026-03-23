@@ -29,6 +29,14 @@
       </div>
     </div>
 
+    <!-- 标注功能入口 -->
+    <div class="action-buttons">
+      <el-button type="primary" @click="goToAnnotation">
+        <el-icon><Edit /></el-icon>
+        开始标注
+      </el-button>
+    </div>
+
     <!-- 状态标签 -->
     <div class="status-badges">
       <span class="status-badge status-badge--incomplete">未完成</span>
@@ -102,7 +110,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { ArrowRight } from '@element-plus/icons-vue';
+import { ArrowRight, Edit } from '@element-plus/icons-vue';
 
 const props = defineProps({
   routeInfo: {
@@ -153,6 +161,12 @@ const handleOnlineItemClick = (item) => {
 
 const goBack = () => {
   window.history.back();
+};
+
+const goToAnnotation = () => {
+  const algoId = algoInfo.value.algoId;
+  const name = encodeURIComponent(algoInfo.value.name);
+  window.location.hash = `#/annotation?algoId=${algoId}&name=${name}`;
 };
 </script>
 
@@ -227,6 +241,12 @@ const goBack = () => {
   font-size: 12px;
   margin-left: 4px;
   color: #7c8fac;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .status-badges {
