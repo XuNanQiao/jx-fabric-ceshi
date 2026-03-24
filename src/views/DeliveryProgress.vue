@@ -49,9 +49,19 @@
 		</div>
 
 		<!-- 项目达标情况 -->
-		<div class="dp-section-card">
+		<Transition name="fullscreen-fade">
+			<div v-if="isFullscreen" class="dp-fullscreen-backdrop" @click="isFullscreen = false"></div>
+		</Transition>
+		<div class="dp-section-card" :class="{ 'is-fullscreen': isFullscreen }">
 			<div class="dp-section-header">
 				<div class="dp-section-title">项目达标情况</div>
+				<el-button
+					:icon="isFullscreen ? 'Close' : 'FullScreen'"
+					circle
+					size="small"
+					:title="isFullscreen ? '退出全屏 (ESC)' : '全屏显示'"
+					@click="toggleFullscreen">
+				</el-button>
 			</div>
 			<div class="dp-progress-list">
 				<div
@@ -63,7 +73,7 @@
 						<el-progress
 							:percentage="project.rate"
 							:color="getProgressColor(project.rate).color"
-							:stroke-width="20"
+							:stroke-width="isFullscreen ? 24 : 20"
 							:show-text="false" />
 						<span class="dp-progress-percent">{{ project.rate }}%</span>
 					</div>
@@ -175,9 +185,42 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Grid, TrendCharts } from '@element-plus/icons-vue';
 import StatCard from '../components/StatCard.vue';
+
+// 全屏状态
+const isFullscreen = ref(false);
+
+// 切换全屏
+const toggleFullscreen = () => {
+	isFullscreen.value = !isFullscreen.value;
+};
+
+// 监听 ESC 键退出全屏
+const handleKeydown = (e) => {
+	if (e.key === 'Escape' && isFullscreen.value) {
+		isFullscreen.value = false;
+	}
+};
+
+// 监听全屏状态变化，控制页面滚动
+watch(isFullscreen, (newVal) => {
+	if (newVal) {
+		document.body.style.overflow = 'hidden';
+	} else {
+		document.body.style.overflow = '';
+	}
+});
+
+onMounted(() => {
+	window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+	window.removeEventListener('keydown', handleKeydown);
+	document.body.style.overflow = '';
+});
 
 // 顶部统计数据
 const stats = reactive({
@@ -457,6 +500,51 @@ const arraySpanMethod = ({ rowIndex, columnIndex }) => {
 	border-radius: 11px;
 	border: 1px solid #e8eef7;
 	box-shadow: 0 3px 12px rgba(31, 41, 55, 0.05);
+	transition: all 0.3s ease;
+
+	&.is-fullscreen {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		width: 100vw;
+		height: 100vh;
+		margin: 0;
+		border-radius: 0;
+		z-index: 9999;
+		overflow-y: auto;
+		padding: 32px 48px;
+		background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+		box-shadow: none;
+
+		.dp-section-title {
+			font-size: 24px;
+		}
+
+		.dp-progress-list {
+			gap: 20px;
+			max-width: 1400px;
+			margin: 0 auto;
+		}
+
+		.dp-progress-item {
+			padding: 16px;
+			background: #ffffff;
+			border-radius: 12px;
+			box-shadow: 0 2px 8px rgba(31, 41, 55, 0.08);
+		}
+
+		.dp-progress-label {
+			font-size: 15px;
+			flex: 0 0 500px;
+		}
+
+		.dp-progress-percent {
+			font-size: 16px;
+			min-width: 55px;
+		}
+	}
 }
 
 .dp-section-header {
@@ -542,6 +630,27 @@ const arraySpanMethod = ({ rowIndex, columnIndex }) => {
 	color: #1f2937;
 	min-width: 45px;
 	text-align: right;
+}
+
+.dp-fullscreen-backdrop {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	z-index: 9998;
+	backdrop-filter: blur(4px);
+}
+
+.fullscreen-fade-enter-active,
+.fullscreen-fade-leave-active {
+	transition: opacity 0.3s ease;
+}
+
+.fullscreen-fade-enter-from,
+.fullscreen-fade-leave-to {
+	opacity: 0;
 }
 
 .dp-filter-bar {
