@@ -10,6 +10,15 @@
         </el-button>
       </el-tooltip>
 
+      <el-tooltip content="平移" placement="bottom">
+        <el-button
+          :type="activeTool === 'pan' ? 'primary' : ''"
+          @click="selectTool('pan')"
+          circle>
+          <el-icon><Rank /></el-icon>
+        </el-button>
+      </el-tooltip>
+
       <el-tooltip content="矩形框" placement="bottom">
         <el-button
           :type="activeTool === 'rectangle' ? 'primary' : ''"
@@ -19,12 +28,39 @@
         </el-button>
       </el-tooltip>
 
+      <el-tooltip content="圆形" placement="bottom">
+        <el-button
+          :type="activeTool === 'circle' ? 'primary' : ''"
+          @click="selectTool('circle')"
+          circle>
+          <el-icon><CirclePlus /></el-icon>
+        </el-button>
+      </el-tooltip>
+
+      <el-tooltip content="点" placement="bottom">
+        <el-button
+          :type="activeTool === 'point' ? 'primary' : ''"
+          @click="selectTool('point')"
+          circle>
+          <el-icon><Location /></el-icon>
+        </el-button>
+      </el-tooltip>
+
+      <el-tooltip content="线段" placement="bottom">
+        <el-button
+          :type="activeTool === 'line' ? 'primary' : ''"
+          @click="selectTool('line')"
+          circle>
+          <el-icon><Connection /></el-icon>
+        </el-button>
+      </el-tooltip>
+
       <el-tooltip content="多边形" placement="bottom">
         <el-button
           :type="activeTool === 'polygon' ? 'primary' : ''"
           @click="selectTool('polygon')"
           circle>
-          <el-icon><Connection /></el-icon>
+          <el-icon><Histogram /></el-icon>
         </el-button>
       </el-tooltip>
 
@@ -63,7 +99,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { Pointer, Grid, Connection, Delete, RefreshLeft, RefreshRight } from '@element-plus/icons-vue';
+import { Pointer, Rank, Grid, CirclePlus, Location, Connection, Histogram, Delete, RefreshLeft, RefreshRight } from '@element-plus/icons-vue';
 
 const props = defineProps({
   activeTool: {
