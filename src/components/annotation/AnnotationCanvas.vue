@@ -50,7 +50,11 @@ let startPoint = null;
 let backgroundImage = null;
 let polygonPoints = [];
 let polygonLines = [];
-let lastPolygonClickTime = 0;
+let polygonDots = [];
+let previewLine = null;
+let previewPolygon = null;
+let isPolygonDrawing = false;
+let lastClickTime = 0;
 let isPanning = false;
 let lastPanPoint = null;
 let labelText = null;
@@ -61,6 +65,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+	window.removeEventListener('keydown', handleKeyDown);
+	if (canvas.value) {
+		canvas.value.removeEventListener('contextmenu', handleContextMenu);
+	}
 	if (fabricCanvas) {
 		fabricCanvas.dispose();
 	}
@@ -98,6 +106,11 @@ const initCanvas = () => {
 	fabricCanvas.on('object:moving', handleObjectMoving);
 	fabricCanvas.on('object:scaling', handleObjectMoving);
 	fabricCanvas.on('object:rotating', handleObjectMoving);
+
+	// 添加键盘事件监听
+	window.addEventListener('keydown', handleKeyDown);
+	// 添加右键菜单监听
+	canvas.value.addEventListener('contextmenu', handleContextMenu);
 };
 
 const loadVideo = async () => {
@@ -133,6 +146,16 @@ const loadVideo = async () => {
 const handleMouseDown = (options) => {
 	const pointer = fabricCanvas.getScenePoint(options.e);
 
+	// 检查是否是右键点击
+	if (options.e.button === 2) {
+		// 右键点击完成多边形绘制
+		if (props.activeTool === 'polygon' && isPolygonDrawing && polygonPoints.length >= 3) {
+			options.e.preventDefault();
+			finishPolygon();
+			return;
+		}
+	}
+
 	if (props.activeTool === 'pan') {
 		isPanning = true;
 		lastPanPoint = { x: options.e.clientX, y: options.e.clientY };
@@ -143,25 +166,41 @@ const handleMouseDown = (options) => {
 	if (props.activeTool === 'select') return;
 
 	if (props.activeTool === 'polygon') {
-		// 用时间戳检测双击的第二次 mousedown（间隔 < 300ms），跳过不添加点
+		// 防止双击时添加额外的点（双击间隔通常 < 300ms）
 		const now = Date.now();
-		const timeSinceLast = now - lastPolygonClickTime;
-		lastPolygonClickTime = now;
-		if (timeSinceLast < 300) return;
+		if (now - lastClickTime < 300) {
+			return;
+		}
+		lastClickTime = now;
 
-		// 多边形绘制：点击添加点
-		const point = new fabric.Circle({
-			left: pointer.x - 3,
-			top: pointer.y - 3,
-			radius: 3,
+		// 检查是否点击在起点附近（闭合多边形）
+		if (polygonPoints.length >= 3) {
+			const firstPoint = polygonPoints[0];
+			const distance = Math.sqrt(Math.pow(pointer.x - firstPoint.x, 2) + Math.pow(pointer.y - firstPoint.y, 2));
+			if (distance < 10) {
+				finishPolygon();
+				return;
+			}
+		}
+
+		// 添加新点
+		const dot = new fabric.Circle({
+			left: pointer.x - 4,
+			top: pointer.y - 4,
+			radius: 4,
 			fill: '#ff00ff',
+			stroke: '#ffffff',
+			strokeWidth: 1,
 			selectable: false,
 			evented: false,
+			hasControls: false,
 		});
-		fabricCanvas.add(point);
+		fabricCanvas.add(dot);
+		polygonDots.push(dot);
 		polygonPoints.push({ x: pointer.x, y: pointer.y });
+		isPolygonDrawing = true;
 
-		// 如果有前一个点，绘制连线
+		// 绘制连线
 		if (polygonPoints.length > 1) {
 			const prevPoint = polygonPoints[polygonPoints.length - 2];
 			const line = new fabric.Line([prevPoint.x, prevPoint.y, pointer.x, pointer.y], {
@@ -169,11 +208,23 @@ const handleMouseDown = (options) => {
 				strokeWidth: 2,
 				selectable: false,
 				evented: false,
+				strokeDashArray: [5, 5],
+				opacity: 1,
 			});
 			fabricCanvas.add(line);
 			polygonLines.push(line);
 		}
+
+		// 更新预览多边形
+		updatePreviewPolygon();
 		fabricCanvas.requestRenderAll();
+
+		// 更新提示
+		if (polygonPoints.length === 1) {
+			drawingHint.value = '继续点击添加点';
+		} else if (polygonPoints.length >= 3) {
+			drawingHint.value = '右键、双击或按 Enter 完成，按 ESC 撤销';
+		}
 		return;
 	}
 
@@ -282,6 +333,55 @@ const handleMouseMove = (options) => {
 		hintPos.value = { x: options.e.offsetX + 14, y: options.e.offsetY + 14 };
 	}
 
+	// 多边形绘制时的预览线
+	if (props.activeTool === 'polygon' && isPolygonDrawing && polygonPoints.length > 0) {
+		const pointer = fabricCanvas.getScenePoint(options.e);
+
+		// 移除旧的预览线（可能是数组）
+		if (previewLine) {
+			if (Array.isArray(previewLine)) {
+				previewLine.forEach((line) => fabricCanvas.remove(line));
+			} else {
+				fabricCanvas.remove(previewLine);
+			}
+			previewLine = null;
+		}
+
+		const lastPoint = polygonPoints[polygonPoints.length - 1];
+		const firstPoint = polygonPoints[0];
+
+		// 绘制从最后一个点到鼠标位置的预览线
+		const lineToMouse = new fabric.Line([lastPoint.x, lastPoint.y, pointer.x, pointer.y], {
+			stroke: '#ff00ff',
+			strokeWidth: 2,
+			strokeDashArray: [5, 5],
+			selectable: false,
+			evented: false,
+			opacity: 0.8,
+		});
+		fabricCanvas.add(lineToMouse);
+
+		// 如果有2个以上的点，绘制从鼠标到起点的闭合预览线
+		let lineToStart = null;
+		if (polygonPoints.length >= 2) {
+			lineToStart = new fabric.Line([pointer.x, pointer.y, firstPoint.x, firstPoint.y], {
+				stroke: '#ff00ff',
+				strokeWidth: 2,
+				strokeDashArray: [5, 5],
+				selectable: false,
+				evented: false,
+				opacity: 0.5,
+			});
+			fabricCanvas.add(lineToStart);
+		}
+
+		// previewLine 存储为数组，便于统一清理
+		previewLine = lineToStart ? [lineToMouse, lineToStart] : [lineToMouse];
+
+		fabricCanvas.requestRenderAll();
+		return;
+	}
+
 	if (!isDrawing || !currentShape) return;
 
 	const pointer = fabricCanvas.getScenePoint(options.e);
@@ -307,45 +407,137 @@ const handleMouseMove = (options) => {
 
 const handleMouseDblClick = () => {
 	if (props.activeTool === 'polygon' && polygonPoints.length >= 3) {
-		// 双击触发两次 mousedown：第一次添加了点需要 pop 掉，第二次已被时间戳拦截
-		polygonPoints.pop();
-		const lastLine = polygonLines.pop();
-		if (lastLine) fabricCanvas.remove(lastLine);
-
-		// 移除临时的点标记和辅助线
-		const objects = fabricCanvas.getObjects();
-		polygonLines.forEach((line) => fabricCanvas.remove(line));
-		objects.forEach((obj) => {
-			if (obj.radius === 3 && obj.fill === '#ff00ff') {
-				fabricCanvas.remove(obj);
-			}
-		});
-
-		// 创建闭合多边形
-		const polygon = new fabric.Polygon(polygonPoints, {
-			fill: 'transparent',
-			stroke: '#ff00ff',
-			strokeWidth: 2,
-			selectable: true,
-		});
-		polygon.label = 'polygon';
-		fabricCanvas.add(polygon);
-
-		const annotation = {
-			id: Date.now(),
-			type: 'polygon',
-			label: 'polygon',
-			frame: props.currentFrame,
-			shape: polygon.toJSON(),
-		};
-		polygon.annotationId = annotation.id;
-		emit('annotation-created', annotation);
-
-		// 重置
-		polygonPoints = [];
-		polygonLines = [];
-		fabricCanvas.requestRenderAll();
+		finishPolygon();
 	}
+};
+
+const finishPolygon = () => {
+	if (polygonPoints.length < 3) return;
+
+	// 清理临时元素
+	clearPolygonDrawing();
+
+	// 创建闭合多边形
+	const polygon = new fabric.Polygon(polygonPoints, {
+		fill: 'rgba(255, 0, 255, 0.1)',
+		stroke: '#ff00ff',
+		strokeWidth: 2,
+		selectable: true,
+		objectCaching: false,
+	});
+	polygon.label = 'polygon';
+	fabricCanvas.add(polygon);
+
+	const annotation = {
+		id: Date.now(),
+		type: 'polygon',
+		label: 'polygon',
+		frame: props.currentFrame,
+		shape: polygon.toJSON(),
+	};
+	polygon.annotationId = annotation.id;
+	emit('annotation-created', annotation);
+
+	// 重置状态
+	polygonPoints = [];
+	polygonLines = [];
+	polygonDots = [];
+	isPolygonDrawing = false;
+	drawingHint.value = '';
+	fabricCanvas.requestRenderAll();
+};
+
+const clearPolygonDrawing = () => {
+	// 移除预览线（可能是数组）
+	if (previewLine) {
+		if (Array.isArray(previewLine)) {
+			previewLine.forEach((line) => fabricCanvas.remove(line));
+		} else {
+			fabricCanvas.remove(previewLine);
+		}
+		previewLine = null;
+	}
+
+	// 移除预览多边形
+	if (previewPolygon) {
+		fabricCanvas.remove(previewPolygon);
+		previewPolygon = null;
+	}
+
+	// 移除所有辅助线
+	polygonLines.forEach((line) => fabricCanvas.remove(line));
+
+	// 移除所有点标记
+	polygonDots.forEach((dot) => fabricCanvas.remove(dot));
+};
+
+const updatePreviewPolygon = () => {
+	// 移除旧的预览多边形
+	if (previewPolygon) {
+		fabricCanvas.remove(previewPolygon);
+		previewPolygon = null;
+	}
+
+	// 至少需要3个点才能显示预览多边形
+	if (polygonPoints.length >= 3) {
+		previewPolygon = new fabric.Polygon(polygonPoints, {
+			fill: 'rgba(255, 0, 255, 0.05)',
+			stroke: 'transparent',
+			selectable: false,
+			evented: false,
+			opacity: 0.5,
+		});
+		fabricCanvas.add(previewPolygon);
+		fabricCanvas.sendObjectToBack(previewPolygon);
+		if (backgroundImage) {
+			fabricCanvas.sendObjectToBack(backgroundImage);
+		}
+	}
+};
+
+const handleKeyDown = (e) => {
+	// ESC 键取消多边形绘制或撤销最后一个点
+	if (e.key === 'Escape' && props.activeTool === 'polygon' && isPolygonDrawing) {
+		if (polygonPoints.length === 1) {
+			// 只有一个点，取消整个绘制
+			clearPolygonDrawing();
+			polygonPoints = [];
+			polygonLines = [];
+			polygonDots = [];
+			isPolygonDrawing = false;
+			drawingHint.value = '';
+			fabricCanvas.requestRenderAll();
+		} else if (polygonPoints.length > 1) {
+			// 撤销最后一个点
+			polygonPoints.pop();
+			const lastDot = polygonDots.pop();
+			const lastLine = polygonLines.pop();
+			if (lastDot) fabricCanvas.remove(lastDot);
+			if (lastLine) fabricCanvas.remove(lastLine);
+			updatePreviewPolygon();
+			fabricCanvas.requestRenderAll();
+		}
+		e.preventDefault();
+	}
+
+	// Enter 键完成多边形绘制
+	if (e.key === 'Enter' && props.activeTool === 'polygon' && polygonPoints.length >= 3) {
+		finishPolygon();
+		e.preventDefault();
+	}
+};
+
+const handleContextMenu = (e) => {
+	// 右键点击完成多边形绘制
+	if (props.activeTool === 'polygon' && isPolygonDrawing && polygonPoints.length >= 3) {
+		e.preventDefault();
+		e.stopPropagation();
+		finishPolygon();
+		return false;
+	}
+
+	// 其他情况也阻止默认右键菜单
+	e.preventDefault();
 };
 
 const handleMouseUp = () => {
@@ -526,27 +718,29 @@ watch(
 		if (!fabricCanvas) return;
 
 		// 切换工具时清理多边形绘制状态
-		if (newTool !== 'polygon' && polygonPoints.length > 0) {
-			const objects = fabricCanvas.getObjects();
-			polygonLines.forEach((line) => fabricCanvas.remove(line));
-			objects.forEach((obj) => {
-				if (obj.radius === 3 && obj.fill === '#ff00ff') {
-					fabricCanvas.remove(obj);
-				}
-			});
+		if (newTool !== 'polygon' && isPolygonDrawing) {
+			clearPolygonDrawing();
 			polygonPoints = [];
 			polygonLines = [];
+			polygonDots = [];
+			isPolygonDrawing = false;
 		}
 
 		// 平移模式下禁用选择框，其他模式下根据工具类型设置
 		fabricCanvas.selection = newTool === 'select';
 
 		// 切换工具时更新操作提示
-		drawingHint.value = newTool === 'rectangle' ? '按下确定起点' : '';
+		if (newTool === 'rectangle') {
+			drawingHint.value = '按下确定起点';
+		} else if (newTool === 'polygon') {
+			drawingHint.value = '点击添加多边形顶点';
+		} else {
+			drawingHint.value = '';
+		}
 
 		// 设置对象的可选择性
 		fabricCanvas.getObjects().forEach((obj) => {
-			if (obj !== backgroundImage) {
+			if (obj !== backgroundImage && obj !== labelText) {
 				obj.selectable = newTool === 'select';
 				obj.evented = newTool === 'select';
 			}
