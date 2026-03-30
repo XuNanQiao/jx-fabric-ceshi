@@ -2,7 +2,12 @@
   <div class="annotation-object-list">
     <div class="list-header">
       <span class="list-title">对象列表 ({{ annotations.length }})</span>
-      <el-button size="small" @click="clearAll" text>清空</el-button>
+      <div class="header-actions">
+        <el-button size="small" @click="toggleAllVisibility" text>
+          <el-icon><View v-if="!allHidden" /><Hide v-else /></el-icon>
+        </el-button>
+        <el-button size="small" @click="clearAll" text>清空</el-button>
+      </div>
     </div>
 
     <div class="list-content">
@@ -48,7 +53,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed } from 'vue';
 import { View, Hide, Delete } from '@element-plus/icons-vue';
 
 const props = defineProps({
@@ -62,7 +67,13 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['select', 'delete', 'toggle-visibility', 'clear-all']);
+const emit = defineEmits(['select', 'delete', 'toggle-visibility', 'toggle-all-visibility', 'clear-all']);
+
+// 计算是否全部隐藏
+const allHidden = computed(() => {
+  if (props.annotations.length === 0) return false;
+  return props.annotations.every(a => a.visible === false);
+});
 
 const getTypeLabel = (type) => {
   const typeMap = {
@@ -83,6 +94,12 @@ const deleteAnnotation = (annotation) => {
 
 const toggleVisibility = (annotation) => {
   emit('toggle-visibility', annotation);
+};
+
+const toggleAllVisibility = () => {
+  // 如果全部隐藏，则显示全部；否则隐藏全部
+  const newVisibility = allHidden.value;
+  emit('toggle-all-visibility', newVisibility);
 };
 
 const clearAll = () => {
@@ -106,6 +123,12 @@ const clearAll = () => {
   padding: 12px 16px;
   border-bottom: 1px solid #e5e7eb;
   background: #f9fafb;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .list-title {
@@ -138,7 +161,7 @@ const clearAll = () => {
   }
 
   &.active {
-    background: #eff6ff;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
     border-color: #3b82f6;
   }
 }

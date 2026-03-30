@@ -245,6 +245,7 @@ const handleMouseDown = (options) => {
 		});
 		fabricCanvas.add(currentShape);
 	} else if (props.activeTool === 'circle') {
+		drawingHint.value = '抬起完成绘制';
 		currentShape = new fabric.Circle({
 			left: pointer.x,
 			top: pointer.y,
@@ -253,6 +254,8 @@ const handleMouseDown = (options) => {
 			stroke: '#44ff44',
 			strokeWidth: 2,
 			selectable: false,
+			originX: 'center',
+			originY: 'center',
 		});
 		fabricCanvas.add(currentShape);
 	} else if (props.activeTool === 'point') {
@@ -525,6 +528,20 @@ const handleKeyDown = (e) => {
 		finishPolygon();
 		e.preventDefault();
 	}
+
+	// Delete 键删除选中的标注
+	if (e.key === 'Delete' || e.key === 'Backspace') {
+		const activeObject = fabricCanvas.getActiveObject();
+		if (activeObject && activeObject !== backgroundImage && activeObject !== labelText) {
+			fabricCanvas.remove(activeObject);
+			hideLabel();
+			if (activeObject.annotationId) {
+				emit('annotation-deleted', { id: activeObject.annotationId });
+			}
+			fabricCanvas.requestRenderAll();
+			e.preventDefault();
+		}
+	}
 };
 
 const handleContextMenu = (e) => {
@@ -551,7 +568,12 @@ const handleMouseUp = () => {
 
 	isDrawing = false;
 	drawingHint.value = '';
-	currentShape.set({ selectable: true });
+	currentShape.set({
+		selectable: true,
+		evented: true,
+		hasControls: true,
+		hasBorders: true,
+	});
 	currentShape.label = props.activeTool;
 
 	const annotation = {
@@ -572,7 +594,8 @@ const handleSelectionCreated = (options) => {
 	if (selected) {
 		highlightObject(selected);
 		showLabel(selected);
-		emit('annotation-selected', selected);
+		// 只传递 annotationId，避免循环引用
+		emit('annotation-selected', { annotationId: selected.annotationId });
 	}
 };
 
@@ -668,7 +691,7 @@ const showLabel = (obj) => {
 	});
 
 	fabricCanvas.add(labelText);
-	fabricCanvas.bringToFront(labelText);
+	// fabricCanvas.bringToFront(labelText);
 	fabricCanvas.requestRenderAll();
 };
 
@@ -709,7 +732,8 @@ const handleObjectMouseOver = (options) => {
 	highlightObject(obj);
 	showLabel(obj);
 	fabricCanvas.renderAll();
-	emit('annotation-selected', obj);
+	// 只传递 annotationId，避免循环引用
+	emit('annotation-selected', { annotationId: obj.annotationId });
 };
 
 watch(
@@ -783,6 +807,8 @@ const loadAnnotationsForFrame = () => {
 				stroke: '#44ff44',
 				strokeWidth: 2,
 				fill: 'transparent',
+				originX: 'center',
+				originY: 'center',
 			});
 		} else if (annotation.type === 'point') {
 			shape = new fabric.Circle({
@@ -808,9 +834,117 @@ const loadAnnotationsForFrame = () => {
 		if (shape) {
 			shape.annotationId = annotation.id;
 			shape.label = annotation.label || annotation.type;
+			// 设置标注的可见性，默认为 true
+			shape.visible = annotation.visible !== false;
 			fabricCanvas.add(shape);
 		}
 	});
+};
+
+// 添加默认标注
+const addDefaultAnnotation = () => {
+	if (!fabricCanvas) return;
+
+	// 获取画布中心位置
+	const centerX = fabricCanvas.width / 2;
+	const centerY = fabricCanvas.height / 2;
+	const defaultWidth = 200;
+	const defaultHeight = 150;
+
+	// 创建默认矩形标注
+	const rect = new fabric.Rect({
+		left: centerX - defaultWidth / 2,
+		top: centerY - defaultHeight / 2,
+		width: defaultWidth,
+		height: defaultHeight,
+		fill: 'transparent',
+		stroke: '#ff4444',
+		strokeWidth: 2,
+		selectable: true,
+	});
+	rect.label = '默认标注';
+	fabricCanvas.add(rect);
+
+	const annotation = {
+		id: Date.now(),
+		type: 'rectangle',
+		label: '默认标注',
+		frame: props.currentFrame,
+		shape: rect.toJSON(),
+	};
+	rect.annotationId = annotation.id;
+	emit('annotation-created', annotation);
+
+	// 选中新创建的标注
+	fabricCanvas.setActiveObject(rect);
+	highlightObject(rect);
+	showLabel(rect);
+	fabricCanvas.requestRenderAll();
+};
+
+// 根据 annotationId 选中标注
+const selectAnnotationById = (annotationId) => {
+	if (!fabricCanvas) return;
+
+	const objects = fabricCanvas.getObjects();
+	const targetObject = objects.find(obj => obj.annotationId === annotationId);
+
+	if (targetObject && targetObject !== backgroundImage && targetObject !== labelText) {
+		fabricCanvas.setActiveObject(targetObject);
+		highlightObject(targetObject);
+		showLabel(targetObject);
+		fabricCanvas.requestRenderAll();
+	}
+};
+
+// 根据 annotationId 切换标注的可见性
+const toggleAnnotationVisibility = (annotationId, visible) => {
+	if (!fabricCanvas) return;
+
+	const objects = fabricCanvas.getObjects();
+	const targetObject = objects.find(obj => obj.annotationId === annotationId);
+
+	if (targetObject && targetObject !== backgroundImage && targetObject !== labelText) {
+		targetObject.set({ visible });
+		fabricCanvas.requestRenderAll();
+	}
+};
+
+// 根据 annotationId 从画布删除标注
+const removeAnnotationById = (annotationId) => {
+	if (!fabricCanvas) return;
+
+	const objects = fabricCanvas.getObjects();
+	const targetObject = objects.find(obj => obj.annotationId === annotationId);
+
+	if (targetObject && targetObject !== backgroundImage && targetObject !== labelText) {
+		fabricCanvas.remove(targetObject);
+		fabricCanvas.requestRenderAll();
+	}
+};
+
+// 清空画布中全部标注（保留背景图）
+const removeAllAnnotations = () => {
+	if (!fabricCanvas) return;
+
+	const toRemove = fabricCanvas.getObjects().filter(
+		obj => obj.annotationId && obj !== backgroundImage && obj !== labelText
+	);
+	toRemove.forEach(obj => fabricCanvas.remove(obj));
+	fabricCanvas.requestRenderAll();
+};
+
+// 切换全部标注的可见性
+const toggleAllAnnotationsVisibility = (visible) => {
+	if (!fabricCanvas) return;
+
+	const objects = fabricCanvas.getObjects();
+	objects.forEach(obj => {
+		if (obj.annotationId && obj !== backgroundImage && obj !== labelText) {
+			obj.set({ visible });
+		}
+	});
+	fabricCanvas.requestRenderAll();
 };
 
 defineExpose({
@@ -823,6 +957,12 @@ defineExpose({
 			}
 		}
 	},
+	addDefaultAnnotation,
+	selectAnnotationById,
+	toggleAnnotationVisibility,
+	toggleAllAnnotationsVisibility,
+	removeAnnotationById,
+	removeAllAnnotations,
 });
 </script>
 

@@ -8,6 +8,13 @@
       @undo="handleUndo"
       @redo="handleRedo" />
 
+    <!-- 添加默认标注按钮 -->
+    <div class="quick-actions">
+      <el-button type="primary" size="small" @click="handleAddDefaultAnnotation">
+        添加默认标注
+      </el-button>
+    </div>
+
     <!-- 主内容区 -->
     <div class="annotation-main">
       <!-- 左侧画布 -->
@@ -31,6 +38,12 @@
                 <VideoPlay v-if="!isPlaying" />
                 <VideoPause v-else />
               </el-icon>
+            </el-button>
+            <el-button @click="handlePrevFrame" :disabled="currentFrame <= 0" size="small">
+              上一张
+            </el-button>
+            <el-button @click="handleNextFrame" :disabled="currentFrame >= totalFrames" size="small">
+              下一张
             </el-button>
             <span class="frame-info">{{ currentFrame }} / {{ totalFrames }}</span>
           </div>
@@ -57,6 +70,7 @@
           @select="handleSelectAnnotation"
           @delete="handleDeleteAnnotation"
           @toggle-visibility="handleToggleVisibility"
+          @toggle-all-visibility="handleToggleAllVisibility"
           @clear-all="handleClearAll" />
       </div>
     </div>
@@ -109,11 +123,23 @@ const handleToolChanged = (tool) => {
 };
 
 const handleAnnotationCreated = (annotation) => {
+  // 确保新创建的标注默认可见
+  annotation.visible = true;
   annotations.value.push(annotation);
   ElMessage.success('标注已创建');
 };
 
 const handleAnnotationUpdated = (annotation) => {
+  console.log('111', annotation);
+
+  // 如果是多边形，获取顶点
+  if (annotation.type === 'polygon') {
+    // Fabric.js 序列化后的多边形顶点在 points 数组中
+    if (annotation.points) {
+      console.log('多边形顶点:', annotation.points);
+    }
+  }
+
   const index = annotations.value.findIndex(a => a.id === annotation.id);
   if (index !== -1) {
     annotations.value[index] = annotation;
@@ -127,8 +153,9 @@ const handleAnnotationDeleted = (annotation) => {
   }
 };
 
-const handleAnnotationSelected = (annotation) => {
-  selectedAnnotationId.value = annotation.id;
+const handleAnnotationSelected = (data) => {
+  // data 现在是 { annotationId: xxx } 格式
+  selectedAnnotationId.value = data.annotationId;
 };
 
 const handleDeleteSelected = () => {
@@ -149,12 +176,26 @@ const handleRedo = () => {
 
 const handleSelectAnnotation = (annotation) => {
   selectedAnnotationId.value = annotation.id;
+  // 在画布上选中对应的标注
+  if (canvasRef.value) {
+    canvasRef.value.selectAnnotationById(annotation.id);
+  }
+};
+
+const handleAddDefaultAnnotation = () => {
+  if (canvasRef.value) {
+    canvasRef.value.addDefaultAnnotation();
+  }
 };
 
 const handleDeleteAnnotation = (annotation) => {
   const index = annotations.value.findIndex(a => a.id === annotation.id);
   if (index !== -1) {
     annotations.value.splice(index, 1);
+    // 从画布中删除对应的标注
+    if (canvasRef.value) {
+      canvasRef.value.removeAnnotationById(annotation.id);
+    }
     ElMessage.success('已删除标注');
   }
 };
@@ -163,11 +204,32 @@ const handleToggleVisibility = (annotation) => {
   const index = annotations.value.findIndex(a => a.id === annotation.id);
   if (index !== -1) {
     annotations.value[index].visible = !annotations.value[index].visible;
+    // 在画布上切换标注的可见性
+    if (canvasRef.value) {
+      canvasRef.value.toggleAnnotationVisibility(annotation.id, annotations.value[index].visible);
+    }
+  }
+};
+
+const handleToggleAllVisibility = (visible) => {
+  // 更新当前帧所有标注的可见性
+  annotations.value.forEach(annotation => {
+    if (annotation.frame === currentFrame.value) {
+      annotation.visible = visible;
+    }
+  });
+  // 在画布上切换全部标注的可见性
+  if (canvasRef.value) {
+    canvasRef.value.toggleAllAnnotationsVisibility(visible);
   }
 };
 
 const handleClearAll = () => {
   annotations.value = annotations.value.filter(a => a.frame !== currentFrame.value);
+  // 清空画布中的所有标注
+  if (canvasRef.value) {
+    canvasRef.value.removeAllAnnotations();
+  }
   ElMessage.success('已清空当前帧标注');
 };
 
@@ -179,6 +241,20 @@ const togglePlay = () => {
 const handleFrameChange = (frame) => {
   currentFrame.value = frame;
   currentTime.value = frame;
+};
+
+const handlePrevFrame = () => {
+  if (currentFrame.value > 0) {
+    currentFrame.value--;
+    currentTime.value = currentFrame.value;
+  }
+};
+
+const handleNextFrame = () => {
+  if (currentFrame.value < totalFrames.value) {
+    currentFrame.value++;
+    currentTime.value = currentFrame.value;
+  }
 };
 
 const formatTime = (seconds) => {
@@ -214,6 +290,15 @@ const handleComplete = () => {
   background: #f5f5f5;
 }
 
+.quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
 .annotation-main {
   flex: 1;
   display: flex;
@@ -241,8 +326,8 @@ const handleComplete = () => {
 .controls-right {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 150px;
+  gap: 8px;
+  min-width: 200px;
 }
 
 .controls-center {
