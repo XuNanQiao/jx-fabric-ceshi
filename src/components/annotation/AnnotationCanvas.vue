@@ -414,6 +414,78 @@ const handleMouseDblClick = () => {
 	}
 };
 
+// 为多边形启用节点编辑功能
+const enablePolygonEdit = (polygon) => {
+	if (!polygon || polygon.type !== 'polygon') return;
+
+	// 自定义控制点渲染函数
+	const renderVertexControl = (ctx, left, top) => {
+		const size = 8;
+		ctx.save();
+		ctx.fillStyle = '#ff00ff';
+		ctx.strokeStyle = '#ffffff';
+		ctx.lineWidth = 2;
+		ctx.beginPath();
+		ctx.arc(left, top, size, 0, 2 * Math.PI);
+		ctx.fill();
+		ctx.stroke();
+		ctx.restore();
+	};
+
+	// 获取多边形的顶点
+	const points = polygon.points;
+
+	// 为每个顶点创建控制点
+	polygon.controls = {};
+
+	points.forEach((point, index) => {
+		polygon.controls[`p${index}`] = new fabric.Control({
+			positionHandler: (_dim, _finalMatrix, fabricObject) => {
+				console.log(fabricObject, '-----------fabricObject');
+
+				// 计算顶点在画布上的位置
+				const x = point.x - fabricObject.pathOffset.x;
+				const y = point.y - fabricObject.pathOffset.y;
+				const transformMatrix = fabric.util.multiplyTransformMatrices(fabricObject.canvas.viewportTransform, fabricObject.calcTransformMatrix());
+				return new fabric.Point(x, y).transform(transformMatrix);
+			},
+			actionHandler: (_eventData, transform, x, y) => {
+				const polygon = transform.target;
+				const mouseLocalPosition = polygon.toLocalPoint(new fabric.Point(x, y), 'center', 'center');
+				const polygonBaseSize = polygon._getNonTransformedDimensions();
+				const size = polygon._getTransformedDimensions(0, 0);
+				const finalPointPosition = {
+					x: (mouseLocalPosition.x * polygonBaseSize.x) / size.x + polygon.pathOffset.x,
+					y: (mouseLocalPosition.y * polygonBaseSize.y) / size.y + polygon.pathOffset.y,
+				};
+
+				polygon.points[index] = finalPointPosition;
+				return true;
+			},
+			render: renderVertexControl,
+			cornerSize: 16,
+			touchCornerSize: 16,
+		});
+	});
+
+	// 禁用默认的缩放、旋转控制点
+	polygon.setControlsVisibility({
+		mt: false,
+		mb: false,
+		ml: false,
+		mr: false,
+		bl: false,
+		br: false,
+		tl: false,
+		tr: false,
+		mtr: false,
+	});
+
+	polygon.hasBorders = true;
+	polygon.hasControls = true;
+	polygon.objectCaching = false;
+};
+
 const finishPolygon = () => {
 	if (polygonPoints.length < 3) return;
 
@@ -429,6 +501,10 @@ const finishPolygon = () => {
 		objectCaching: false,
 	});
 	polygon.label = 'polygon';
+
+	// 启用多边形节点编辑功能
+	enablePolygonEdit(polygon);
+
 	fabricCanvas.add(polygon);
 
 	const annotation = {
@@ -592,6 +668,10 @@ const handleMouseUp = () => {
 const handleSelectionCreated = (options) => {
 	const selected = options.selected[0];
 	if (selected) {
+		// 如果是多边形，确保编辑功能已启用
+		if (selected.type === 'polygon') {
+			enablePolygonEdit(selected);
+		}
 		highlightObject(selected);
 		showLabel(selected);
 		// 只传递 annotationId，避免循环引用
@@ -608,6 +688,10 @@ const handleSelectionUpdated = (options) => {
 				unhighlightObject(obj);
 			}
 		});
+		// 如果是多边形，确保编辑功能已启用
+		if (selected.type === 'polygon') {
+			enablePolygonEdit(selected);
+		}
 		highlightObject(selected);
 		showLabel(selected);
 	} else {
@@ -711,7 +795,12 @@ const handleObjectMoving = (options) => {
 };
 
 const handleObjectModified = (options) => {
+	console.log(options, '---------options');
+
 	const modified = options.target;
+	const { left, top, width, height } = modified;
+	console.log(left, top, width, height, '---------   ');
+
 	if (modified) {
 		emit('annotation-updated', modified.toJSON());
 	}
@@ -729,6 +818,10 @@ const handleObjectMouseOver = (options) => {
 	}
 
 	fabricCanvas.setActiveObject(obj);
+	// 如果是多边形，确保编辑功能已启用
+	if (obj.type === 'polygon') {
+		enablePolygonEdit(obj);
+	}
 	highlightObject(obj);
 	showLabel(obj);
 	fabricCanvas.renderAll();
@@ -829,7 +922,10 @@ const loadAnnotationsForFrame = () => {
 				stroke: '#ff00ff',
 				strokeWidth: 2,
 				fill: 'transparent',
+				objectCaching: false,
 			});
+			// 为加载的多边形启用节点编辑
+			enablePolygonEdit(shape);
 		}
 		if (shape) {
 			shape.annotationId = annotation.id;
@@ -882,15 +978,60 @@ const addDefaultAnnotation = () => {
 	fabricCanvas.requestRenderAll();
 };
 
+// 添加默认旋转的矩形
+const addRotatedRectangle = () => {
+	if (!fabricCanvas) return;
+
+	const centerX = fabricCanvas.width / 2;
+	const centerY = fabricCanvas.height / 2;
+	const defaultWidth = 200;
+	const defaultHeight = 150;
+
+	const rect = new fabric.Rect({
+		left: centerX,
+		top: centerY,
+		width: defaultWidth,
+		height: defaultHeight,
+		fill: 'transparent',
+		stroke: '#ff4444',
+		strokeWidth: 2,
+		selectable: true,
+		angle: 45,
+		originX: 'center',
+		originY: 'center',
+	});
+	rect.label = '旋转矩形';
+	fabricCanvas.add(rect);
+
+	const annotation = {
+		id: Date.now(),
+		type: 'rectangle',
+		label: '旋转矩形',
+		frame: props.currentFrame,
+		shape: rect.toJSON(),
+	};
+	rect.annotationId = annotation.id;
+	emit('annotation-created', annotation);
+
+	fabricCanvas.setActiveObject(rect);
+	highlightObject(rect);
+	showLabel(rect);
+	fabricCanvas.requestRenderAll();
+};
+
 // 根据 annotationId 选中标注
 const selectAnnotationById = (annotationId) => {
 	if (!fabricCanvas) return;
 
 	const objects = fabricCanvas.getObjects();
-	const targetObject = objects.find(obj => obj.annotationId === annotationId);
+	const targetObject = objects.find((obj) => obj.annotationId === annotationId);
 
 	if (targetObject && targetObject !== backgroundImage && targetObject !== labelText) {
 		fabricCanvas.setActiveObject(targetObject);
+		// 如果是多边形，确保编辑功能已启用
+		if (targetObject.type === 'polygon') {
+			enablePolygonEdit(targetObject);
+		}
 		highlightObject(targetObject);
 		showLabel(targetObject);
 		fabricCanvas.requestRenderAll();
@@ -902,7 +1043,7 @@ const toggleAnnotationVisibility = (annotationId, visible) => {
 	if (!fabricCanvas) return;
 
 	const objects = fabricCanvas.getObjects();
-	const targetObject = objects.find(obj => obj.annotationId === annotationId);
+	const targetObject = objects.find((obj) => obj.annotationId === annotationId);
 
 	if (targetObject && targetObject !== backgroundImage && targetObject !== labelText) {
 		targetObject.set({ visible });
@@ -915,7 +1056,7 @@ const removeAnnotationById = (annotationId) => {
 	if (!fabricCanvas) return;
 
 	const objects = fabricCanvas.getObjects();
-	const targetObject = objects.find(obj => obj.annotationId === annotationId);
+	const targetObject = objects.find((obj) => obj.annotationId === annotationId);
 
 	if (targetObject && targetObject !== backgroundImage && targetObject !== labelText) {
 		fabricCanvas.remove(targetObject);
@@ -927,10 +1068,8 @@ const removeAnnotationById = (annotationId) => {
 const removeAllAnnotations = () => {
 	if (!fabricCanvas) return;
 
-	const toRemove = fabricCanvas.getObjects().filter(
-		obj => obj.annotationId && obj !== backgroundImage && obj !== labelText
-	);
-	toRemove.forEach(obj => fabricCanvas.remove(obj));
+	const toRemove = fabricCanvas.getObjects().filter((obj) => obj.annotationId && obj !== backgroundImage && obj !== labelText);
+	toRemove.forEach((obj) => fabricCanvas.remove(obj));
 	fabricCanvas.requestRenderAll();
 };
 
@@ -939,7 +1078,7 @@ const toggleAllAnnotationsVisibility = (visible) => {
 	if (!fabricCanvas) return;
 
 	const objects = fabricCanvas.getObjects();
-	objects.forEach(obj => {
+	objects.forEach((obj) => {
 		if (obj.annotationId && obj !== backgroundImage && obj !== labelText) {
 			obj.set({ visible });
 		}
@@ -958,6 +1097,7 @@ defineExpose({
 		}
 	},
 	addDefaultAnnotation,
+	addRotatedRectangle,
 	selectAnnotationById,
 	toggleAnnotationVisibility,
 	toggleAllAnnotationsVisibility,

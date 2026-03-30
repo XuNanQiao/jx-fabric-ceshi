@@ -130,8 +130,6 @@ const handleAnnotationCreated = (annotation) => {
 };
 
 const handleAnnotationUpdated = (annotation) => {
-  console.log('111', annotation);
-
   // 如果是多边形，获取顶点
   if (annotation.type === 'polygon') {
     // Fabric.js 序列化后的多边形顶点在 points 数组中
