@@ -416,7 +416,14 @@ const handleMouseDblClick = () => {
 
 // 为多边形启用节点编辑功能
 const enablePolygonEdit = (polygon) => {
+	console.log(polygon, '--------');
+
 	if (!polygon || polygon.type !== 'polygon') return;
+
+	// 确保 pathOffset 存在
+	if (!polygon.pathOffset) {
+		polygon.pathOffset = new fabric.Point(0, 0);
+	}
 
 	// 自定义控制点渲染函数
 	const renderVertexControl = (ctx, left, top) => {
@@ -432,41 +439,82 @@ const enablePolygonEdit = (polygon) => {
 		ctx.restore();
 	};
 
-	// 获取多边形的顶点
-	const points = polygon.points;
+	// 获取多边形的顶点数量
+	const pointsCount = polygon.points.length;
 
 	// 为每个顶点创建控制点
 	polygon.controls = {};
 
-	points.forEach((point, index) => {
-		polygon.controls[`p${index}`] = new fabric.Control({
-			positionHandler: (_dim, _finalMatrix, fabricObject) => {
-				console.log(fabricObject, '-----------fabricObject');
+	for (let i = 0; i < pointsCount; i++) {
+		const controlKey = `p${i}`;
+		const pointIndex = i; // 捕获当前索引
 
-				// 计算顶点在画布上的位置
-				const x = point.x - fabricObject.pathOffset.x;
-				const y = point.y - fabricObject.pathOffset.y;
-				const transformMatrix = fabric.util.multiplyTransformMatrices(fabricObject.canvas.viewportTransform, fabricObject.calcTransformMatrix());
-				return new fabric.Point(x, y).transform(transformMatrix);
+		polygon.controls[controlKey] = new fabric.Control({
+			positionHandler: function (dim, finalMatrix, fabricObject) {
+				// 使用 pointIndex 而不是 i
+				if (!fabricObject.points || pointIndex >= fabricObject.points.length) {
+					return new fabric.Point(0, 0);
+				}
+
+				const point = fabricObject.points[pointIndex];
+				if (!point) {
+					return new fabric.Point(0, 0);
+				}
+
+				const pathOffset = fabricObject.pathOffset || new fabric.Point(0, 0);
+				const x = point.x - pathOffset.x;
+				const y = point.y - pathOffset.y;
+
+				return new fabric.Point(x, y).transform(fabric.util.multiplyTransformMatrices(fabricObject.canvas.viewportTransform, fabricObject.calcTransformMatrix()));
 			},
-			actionHandler: (_eventData, transform, x, y) => {
-				const polygon = transform.target;
-				const mouseLocalPosition = polygon.toLocalPoint(new fabric.Point(x, y), 'center', 'center');
-				const polygonBaseSize = polygon._getNonTransformedDimensions();
-				const size = polygon._getTransformedDimensions(0, 0);
-				const finalPointPosition = {
-					x: (mouseLocalPosition.x * polygonBaseSize.x) / size.x + polygon.pathOffset.x,
-					y: (mouseLocalPosition.y * polygonBaseSize.y) / size.y + polygon.pathOffset.y,
+
+			actionHandler: function (eventData, transformData, x, y) {
+				const poly = transformData.target;
+				const canvas = poly.canvas;
+
+				// 确保 poly 是有效的 Fabric 对象
+				if (!poly || !poly.points || pointIndex >= poly.points.length) {
+					return false;
+				}
+
+				// 获取变换矩阵的逆矩阵，用于将鼠标坐标转换为多边形本地坐标
+				const transform = poly.calcTransformMatrix();
+				const invertedTransform = fabric.util.invertTransform(transform);
+
+				// 将鼠标坐标转换为本地坐标
+				const mousePoint = new fabric.Point(x, y);
+				const localPoint = mousePoint.transform(invertedTransform);
+
+				const pathOffset = poly.pathOffset || new fabric.Point(0, 0);
+
+				// 直接更新顶点位置
+				poly.points[pointIndex] = {
+					x: localPoint.x + pathOffset.x,
+					y: localPoint.y + pathOffset.y,
 				};
 
-				polygon.points[index] = finalPointPosition;
+				// 强制重新计算多边形的尺寸和位置
+				poly.setCoords();
+				if (canvas) {
+					canvas.requestRenderAll();
+				}
+
 				return true;
 			},
+
 			render: renderVertexControl,
 			cornerSize: 16,
 			touchCornerSize: 16,
+			cursorStyle: 'pointer',
+			mouseUpHandler: function () {
+				return true;
+			},
+			getActionHandler: function () {
+				return this.actionHandler;
+			},
 		});
-	});
+	}
+	console.log(polygon.controls, '---------polygon.controls');
 
 	// 禁用默认的缩放、旋转控制点
 	polygon.setControlsVisibility({
