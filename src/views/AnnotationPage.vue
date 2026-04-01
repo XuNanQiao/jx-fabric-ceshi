@@ -6,7 +6,8 @@
       @tool-changed="handleToolChanged"
       @delete-selected="handleDeleteSelected"
       @undo="handleUndo"
-      @redo="handleRedo" />
+      @redo="handleRedo"
+      @get-vertices="handleGetVertices" />
 
     <!-- 添加默认标注按钮 -->
     <div class="quick-actions">
@@ -87,7 +88,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { VideoPlay, VideoPause } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import AnnotationToolbar from '../components/annotation/AnnotationToolbar.vue';
@@ -171,6 +172,34 @@ const handleRedo = () => {
   // 实现重做逻辑
   ElMessage.info('重做功能开发中');
 };
+
+const handleGetVertices = () => {
+  if (canvasRef.value) {
+    const result = canvasRef.value.getPolygonAbsoluteVertices();
+    if (result.success) {
+      console.log('多边形顶点绝对坐标:', result.vertices);
+      ElMessage({
+        message: `已获取 ${result.count} 个顶点坐标，请查看控制台`,
+        type: 'success',
+        duration: 3000
+      });
+
+      // 格式化输出到控制台
+      console.table(result.vertices);
+
+      // 也可以弹窗显示
+      const verticesText = result.vertices.map((v, i) =>
+        `顶点 ${i + 1}: (${v.x.toFixed(2)}, ${v.y.toFixed(2)})`
+      ).join('\n');
+
+      // 可选：显示详细对话框
+      // ElMessageBox.alert(verticesText, '多边形顶点坐标', { confirmButtonText: '确定' });
+    } else {
+      ElMessage.warning(result.message);
+    }
+  }
+};
+
 
 const handleSelectAnnotation = (annotation) => {
   selectedAnnotationId.value = annotation.id;
@@ -278,6 +307,56 @@ const handleComplete = () => {
     window.history.back();
   }, 500);
 };
+
+// 键盘事件处理
+const handleKeyDown = (event) => {
+  // Ctrl+S 保存
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    handleSave();
+    return;
+  }
+
+  // 检查是否在输入框中,如果是则不处理
+  const activeElement = document.activeElement;
+  const isInputField = activeElement && (
+    activeElement.tagName === 'INPUT' ||
+    activeElement.tagName === 'TEXTAREA' ||
+    activeElement.isContentEditable
+  );
+
+  if (isInputField) {
+    return;
+  }
+
+  // 有 Ctrl/Meta 修饰键时不处理单键逻辑，避免与复制粘贴等快捷键冲突
+  if (event.ctrlKey || event.metaKey || event.altKey) {
+    return;
+  }
+
+  const key = event.key.toLowerCase();
+
+  // 左方向键或D键 - 上一张
+  if (key === 'arrowleft' || key === 'd') {
+    event.preventDefault();
+    handlePrevFrame();
+  }
+  // 右方向键或F键 - 下一张
+  else if (key === 'arrowright' || key === 'f') {
+    event.preventDefault();
+    handleNextFrame();
+  }
+};
+
+// 组件挂载时添加键盘事件监听
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown);
+});
+
+// 组件卸载时移除键盘事件监听
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown);
+});
 </script>
 
 <style scoped lang="scss">

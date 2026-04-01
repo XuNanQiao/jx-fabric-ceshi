@@ -58,6 +58,7 @@ let lastClickTime = 0;
 let isPanning = false;
 let lastPanPoint = null;
 let labelText = null;
+let clipboardAnnotation = null; // 复制的标注对象
 
 onMounted(() => {
 	initCanvas();
@@ -623,6 +624,48 @@ const updatePreviewPolygon = () => {
 };
 
 const handleKeyDown = (e) => {
+	// Ctrl+C 复制选中的标注
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+		const activeObject = fabricCanvas.getActiveObject();
+		if (activeObject && activeObject !== backgroundImage && activeObject !== labelText) {
+			clipboardAnnotation = activeObject;
+			e.preventDefault();
+		}
+		return;
+	}
+
+	// Ctrl+V 粘贴标注
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+		if (!clipboardAnnotation) return;
+		clipboardAnnotation.clone().then((cloned) => {
+			cloned.set({
+				left: (clipboardAnnotation.left || 0) + 20,
+				top: (clipboardAnnotation.top || 0) + 20,
+				evented: true,
+				selectable: true,
+			});
+			cloned.label = clipboardAnnotation.label;
+			const annotation = {
+				id: Date.now(),
+				type: clipboardAnnotation.type,
+				label: cloned.label,
+				frame: props.currentFrame,
+				shape: cloned.toJSON(),
+			};
+			cloned.annotationId = annotation.id;
+			// 多边形需重启节点编辑
+			if (cloned.type === 'polygon') {
+				enablePolygonEdit(cloned);
+			}
+			fabricCanvas.add(cloned);
+			fabricCanvas.setActiveObject(cloned);
+			fabricCanvas.requestRenderAll();
+			emit('annotation-created', annotation);
+		});
+		e.preventDefault();
+		return;
+	}
+
 	// ESC 键取消多边形绘制或撤销最后一个点
 	if (e.key === 'Escape' && props.activeTool === 'polygon' && isPolygonDrawing) {
 		if (polygonPoints.length === 1) {
@@ -1151,6 +1194,42 @@ defineExpose({
 	toggleAllAnnotationsVisibility,
 	removeAnnotationById,
 	removeAllAnnotations,
+	getPolygonAbsoluteVertices: () => {
+		const activeObject = fabricCanvas.getActiveObject();
+		if (!activeObject) {
+			return { success: false, message: '请先选择一个标注对象' };
+		}
+
+		if (activeObject.type !== 'polygon') {
+			return { success: false, message: '当前选中的对象不是多边形' };
+		}
+
+		// 获取多边形的变换矩阵
+		const matrix = activeObject.calcTransformMatrix();
+
+		// 计算绝对坐标
+		const absoluteVertices = activeObject.points.map((point) => {
+			// 使用 fabric.Point 进行坐标转换
+			const localPoint = new fabric.Point(
+				point.x - (activeObject.pathOffset?.x || 0),
+				point.y - (activeObject.pathOffset?.y || 0)
+			);
+
+			// 应用变换矩阵得到绝对坐标
+			const absolutePoint = localPoint.transform(matrix);
+
+			return {
+				x: absolutePoint.x,
+				y: absolutePoint.y
+			};
+		});
+
+		return {
+			success: true,
+			vertices: absoluteVertices,
+			count: absoluteVertices.length
+		};
+	},
 });
 </script>
 
