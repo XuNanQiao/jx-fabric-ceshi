@@ -499,9 +499,37 @@ const enablePolygonEdit = (polygon) => {
 				},
 				actionHandler: function (eventData, transformData, x, y) {
 					const poly = transformData.target;
+
+					// 检查多边形和顶点数据是否有效
+					if (!poly || !poly.points || pointIndex < 0 || pointIndex >= poly.points.length) {
+						return false;
+					}
+
+					// 获取当前鼠标位置（场景坐标）
+					const mouseLocalPosition = poly.toLocalPoint(new fabric.Point(x, y), 'center', 'center');
+
+					// 更新顶点位置
+					poly.points[pointIndex] = {
+						x: mouseLocalPosition.x,
+						y: mouseLocalPosition.y
+					};
+
+					// 重新计算多边形的尺寸和位置
+					const dims = poly._calcDimensions();
+					poly.set({
+						width: dims.width,
+						height: dims.height,
+						pathOffset: new fabric.Point(dims.left + dims.width / 2, dims.top + dims.height / 2)
+					});
+
+					// 标记为脏对象，需要重新渲染
+					poly.dirty = true;
+
 					return true;
-					// ... （保持原 actionHandler 逻辑）
 				},
+				render: renderVertexControl,
+				cornerSize: 12,
+				touchCornerSize: 16,
 			});
 		}
 	} 
