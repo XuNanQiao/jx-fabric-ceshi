@@ -7,12 +7,26 @@
       @delete-selected="handleDeleteSelected"
       @undo="handleUndo"
       @redo="handleRedo"
-      @get-vertices="handleGetVertices" />
+      @get-vertices="handleGetVertices"
+      @clear-selection="handleClearSelection" />
 
     <!-- 添加默认标注按钮 -->
     <div class="quick-actions">
       <el-button type="primary" size="small" @click="handleAddDefaultAnnotation">
         添加默认标注
+      </el-button>
+      <el-button type="success" size="small" @click="handleDownloadJson">
+        下载JSON数据
+      </el-button>
+      <el-divider direction="vertical" />
+      <el-button type="info" size="small" @click="handleLoadFromApi">
+        从API加载当前帧
+      </el-button>
+      <el-button type="warning" size="small" @click="handleViewAllData">
+        查看所有数据
+      </el-button>
+      <el-button type="danger" size="small" @click="handleClearStorage">
+        清空存储
       </el-button>
     </div>
 
@@ -90,10 +104,16 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { VideoPlay, VideoPause } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import AnnotationToolbar from '../components/annotation/AnnotationToolbar.vue';
 import AnnotationCanvas from '../components/annotation/AnnotationCanvas.vue';
 import AnnotationObjectList from '../components/annotation/AnnotationObjectList.vue';
+import {
+  savePolygonAnnotations,
+  getPolygonsByFrame,
+  getAllPolygonAnnotations,
+  clearAllAnnotations,
+} from '../api/mockApi.js';
 
 const props = defineProps({
   routeInfo: {
@@ -200,6 +220,14 @@ const handleGetVertices = () => {
   }
 };
 
+const handleClearSelection = () => {
+  if (canvasRef.value) {
+    canvasRef.value.clearSelection();
+    selectedAnnotationId.value = null;
+    ElMessage.info('已清除选中');
+  }
+};
+
 
 const handleSelectAnnotation = (annotation) => {
   selectedAnnotationId.value = annotation.id;
@@ -294,10 +322,183 @@ const handleCancel = () => {
   window.history.back();
 };
 
-const handleSave = () => {
-  // 保存标注数据到后端
-  console.log('保存标注:', annotations.value);
-  ElMessage.success('标注已保存');
+const handleSave = async () => {
+  try {
+    // 获取所有多边形数据（应用0.6的缩放比例）
+    const polygonsData = canvasRef.value ? canvasRef.value.getAllPolygonsWithVertices(0.6) : [];
+
+    // 构建保存的数据结构
+    const saveData = {
+      videoUrl: videoUrl.value,
+      currentFrame: currentFrame.value,
+      scale: 0.6, // 缩放比例
+      timestamp: new Date().toISOString(),
+      annotations: annotations.value,
+      polygons: polygonsData, // 包含绝对坐标和缩放后的顶点数据
+    };
+
+    console.log('准备保存的数据:', saveData);
+    console.log('多边形详细信息:', polygonsData);
+
+    // 调用虚拟API保存数据
+    const response = await savePolygonAnnotations(saveData);
+
+    if (response.success) {
+      ElMessage.success(
+        `${response.message}（包含 ${polygonsData.length} 个多边形，缩放比例: 0.6）`
+      );
+      console.log('保存响应:', response.data);
+    } else {
+      throw new Error(response.message || '保存失败');
+    }
+
+  } catch (error) {
+    console.error('保存失败:', error);
+    ElMessage.error('保存标注数据失败: ' + error.message);
+  }
+};
+
+// 可选：下载为JSON文件的辅助函数
+const downloadAsJson = (data) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `annotation_frame_${currentFrame.value}_${Date.now()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// 下载JSON数据（用于测试）
+const handleDownloadJson = () => {
+  const polygonsData = canvasRef.value ? canvasRef.value.getAllPolygonsWithVertices(0.6) : [];
+
+  const saveData = {
+    videoUrl: videoUrl.value,
+    currentFrame: currentFrame.value,
+    scale: 0.6,
+    timestamp: new Date().toISOString(),
+    annotations: annotations.value,
+    polygons: polygonsData,
+  };
+
+  downloadAsJson(saveData);
+  ElMessage.success('JSON数据已下载');
+};
+
+// 从API加载当前帧的标注数据
+const handleLoadFromApi = async () => {
+  try {
+    const response = await getPolygonsByFrame(currentFrame.value);
+
+    if (response.success) {
+      const { polygons, annotations: loadedAnnotations } = response.data;
+
+      console.log('=== API返回的数据 ===');
+      console.log('polygons:', polygons);
+      console.log('annotations:', loadedAnnotations);
+
+      if (polygons.length === 0 && (!loadedAnnotations || loadedAnnotations.length === 0)) {
+        ElMessage.info(`第 ${currentFrame.value} 帧暂无保存的标注数据`);
+        return;
+      }
+
+      // 加载标注数据到 annotations 数组
+      if (loadedAnnotations && loadedAnnotations.length > 0) {
+        // 清除当前帧的旧标注
+        annotations.value = annotations.value.filter(a => a.frame !== currentFrame.value);
+
+        // 添加加载的标注
+        loadedAnnotations.forEach(ann => {
+          console.log('加载标注:', {
+            id: ann.id,
+            type: ann.type,
+            hasShape: !!ann.shape,
+            shapePoints: ann.shape?.points?.length || 0
+          });
+        });
+
+        annotations.value.push(...loadedAnnotations);
+
+        console.log('annotations数组已更新:', annotations.value.length, '条');
+
+        // 触发画布重新加载标注
+        if (canvasRef.value) {
+          console.log('触发画布重新加载');
+          canvasRef.value.reloadAnnotations();
+        }
+      }
+
+      ElMessage.success(
+        `已加载第 ${currentFrame.value} 帧的标注数据（${polygons.length} 个多边形）`
+      );
+    }
+  } catch (error) {
+    console.error('加载失败:', error);
+    ElMessage.error('加载标注数据失败: ' + error.message);
+  }
+};
+
+// 查看所有保存的数据
+const handleViewAllData = async () => {
+  try {
+    const response = await getAllPolygonAnnotations();
+
+    if (response.success) {
+      const { totalFrames, totalAnnotations, allData } = response.data;
+
+      console.log('=== 所有标注数据 ===');
+      console.log('总帧数:', totalFrames);
+      console.log('总标注数:', totalAnnotations);
+      console.log('详细数据:', allData);
+      console.table(allData.map(item => ({
+        帧号: item.currentFrame,
+        多边形数量: item.polygons?.length || 0,
+        缩放比例: item.scale,
+        保存时间: new Date(item.savedAt).toLocaleString('zh-CN'),
+      })));
+
+      ElMessageBox.alert(
+        `共有 ${totalFrames} 个帧包含标注数据，总计 ${totalAnnotations} 条标注记录。详情请查看控制台。`,
+        '数据统计',
+        { confirmButtonText: '确定' }
+      );
+    }
+  } catch (error) {
+    console.error('查看数据失败:', error);
+    ElMessage.error('查看数据失败: ' + error.message);
+  }
+};
+
+// 清空所有存储的数据
+const handleClearStorage = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '此操作将清空所有保存的标注数据，是否继续？',
+      '警告',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+
+    const response = await clearAllAnnotations();
+
+    if (response.success) {
+      ElMessage.success(response.message);
+      console.log('存储已清空');
+    }
+  } catch (error) {
+    if (error === 'cancel') {
+      ElMessage.info('已取消操作');
+    } else {
+      console.error('清空失败:', error);
+      ElMessage.error('清空数据失败: ' + error.message);
+    }
+  }
 };
 
 const handleComplete = () => {

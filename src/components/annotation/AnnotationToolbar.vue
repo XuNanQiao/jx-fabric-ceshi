@@ -90,6 +90,12 @@
         </el-button>
       </el-tooltip>
 
+      <el-tooltip content="清除选中" placement="bottom">
+        <el-button @click="handleButtonClick($event, 'clearSelection', '清除选中')" circle>
+          <el-icon><Close /></el-icon>
+        </el-button>
+      </el-tooltip>
+
       <el-tooltip content="撤销" placement="bottom">
         <el-button @click="handleButtonClick($event, 'undo', '撤销')" circle>
           <el-icon><RefreshLeft /></el-icon>
@@ -125,7 +131,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { Pointer, Rank, Grid, CirclePlus, Location, Connection, Histogram, Delete, RefreshLeft, RefreshRight, DataLine } from '@element-plus/icons-vue';
+import { Pointer, Rank, Grid, CirclePlus, Location, Connection, Histogram, Delete, RefreshLeft, RefreshRight, DataLine, Close } from '@element-plus/icons-vue';
 
 const props = defineProps({
   activeTool: {
@@ -138,7 +144,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['tool-changed', 'delete-selected', 'undo', 'redo', 'label-changed', 'get-vertices']);
+const emit = defineEmits(['tool-changed', 'delete-selected', 'undo', 'redo', 'label-changed', 'get-vertices', 'clear-selection']);
 
 const currentLabel = ref('person');
 const selectOption = ref('option1');
@@ -160,6 +166,8 @@ const handleButtonClick = (event, action, label) => {
     emit('redo');
   } else if (action === 'getVertices') {
     emit('get-vertices');
+  } else if (action === 'clearSelection') {
+    emit('clear-selection');
   } else {
     emit('tool-changed', action);
   }
